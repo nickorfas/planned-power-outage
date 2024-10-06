@@ -24,6 +24,7 @@ public class PlannedPowerOutage implements Runnable {
     private static final List<String> KEYWORDS = List.of("Βασιλειές", "Σύλαμο", "Ορφανουδάκη");
     private static final int PREFECTURE_ID = 21;
     private static final int MUNICIPALITY_ID = 413;
+    private static final String DEDDIE_URL = "https://siteapps.deddie.gr/Outages2Public/Home/OutagesPartial?prefectureID=%d&MunicipalityID=%d&page=%d";
 
     public static void main(String[] args) {
         int exitCode = new CommandLine(new PlannedPowerOutage()).execute(args);
@@ -70,9 +71,7 @@ public class PlannedPowerOutage implements Runnable {
 
     private Document retrieveNormalizedInfoFromDeddie(int page) {
         try {
-            return Jsoup.connect("https://siteapps.deddie.gr/Outages2Public/Home/OutagesPartial?prefectureID=%d&MunicipalityID=%d&page=%d"
-                            .formatted(PREFECTURE_ID, MUNICIPALITY_ID, page))
-                    .get();
+            return Jsoup.connect(DEDDIE_URL.formatted(PREFECTURE_ID, MUNICIPALITY_ID, page)).get();
         } catch (IOException e) {
             throw new RuntimeException("Error while retrieving info from Deddie website. Details: " + e);
         }
