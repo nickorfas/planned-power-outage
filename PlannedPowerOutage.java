@@ -5,12 +5,16 @@
 
 package com.gmail.nickorfas;
 
+import static java.util.function.Predicate.not;
+
 import java.io.IOException;
 import java.text.Normalizer;
-import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -21,9 +25,14 @@ import picocli.CommandLine;
 
 @CommandLine.Command
 public class PlannedPowerOutage implements Runnable {
-    private static final List<String> KEYWORDS = List.of("Βασιλειές", "Σύλαμο", "Ορφανουδάκη");
-    private static final int PREFECTURE_ID = 21;
-    private static final int MUNICIPALITY_ID = 413;
+    @CommandLine.Option(required = true, names = {"-p", "--prefecture-id"}, description = "Prefecture ID used by Deddie website")
+    int prefectureId;
+    @CommandLine.Option(required = true, names = {"-m", "--municipality-id"}, description = "Municipality ID used by Deddie website")
+    int municipalityId;
+    @CommandLine.Parameters(arity = "0..*", description = "greek keywords that Deddie is using to specify your area/region/street. If no keywords are provided, all planned power outages in your municipality will be returned")
+    List<String> keywords = new ArrayList<>();
+    @CommandLine.Option(names = {"-h", "--help"}, usageHelp = true, hidden = true)
+    boolean help;
     private static final String DEDDIE_URL = "https://siteapps.deddie.gr/Outages2Public/Home/OutagesPartial?prefectureID=%d&MunicipalityID=%d&page=%d";
 
     public static void main(String[] args) {
@@ -33,19 +42,24 @@ public class PlannedPowerOutage implements Runnable {
 
     @Override
     public void run() {
-        List<String> normalizedUpperCasedKeywords = KEYWORDS.stream().map(this::normalizeAndUpperCaseText).toList();
+        Set<String> normalizedUpperCasedKeywords = keywords.stream()
+                .map(String::trim)
+                .filter(not(String::isBlank))
+                .map(this::normalizeAndUpperCaseText)
+                .collect(Collectors.toUnmodifiableSet());
+        boolean noKeywordsProvided = normalizedUpperCasedKeywords.isEmpty();
 
         boolean hasMorePages;
         var pageNumber = 1;
-        List<AbstractMap.SimpleEntry<String, Element>> totalItems = new ArrayList<>();
+        Set<Element> totalItems = new HashSet<>();
         do {
             var document = retrieveNormalizedInfoFromDeddie(pageNumber);
 
             var items = document.stream()
                     .filter(element -> element.nameIs("td"))
-                    .map(element -> new AbstractMap.SimpleEntry<>(normalizeAndUpperCaseText(element), element))
-                    .filter(element -> normalizedUpperCasedKeywords.stream().anyMatch(keyword -> element.getKey().contains(keyword)))
-                    .toList();
+                    .filter(element -> noKeywordsProvided || normalizedUpperCasedKeywords.stream().anyMatch(keyword -> normalizeAndUpperCaseText(element).contains(keyword)))
+                    .map(Element::parent)
+                    .collect(Collectors.toUnmodifiableSet());
 
             totalItems.addAll(items);
 
@@ -58,8 +72,8 @@ public class PlannedPowerOutage implements Runnable {
         } else {
             System.out.println(("Here we go again. Planned power outage(s):"));
             totalItems.forEach(item -> {
-                Elements tds = item.getValue().parent().select("td");
-                String plannedPowerOutageItemMessage = "* %s - %s: %s".formatted(normalizeAndUpperCaseText(tds.get(0)), normalizeAndUpperCaseText(tds.get(1)), item.getKey());
+                Elements tds = item.select("td");
+                String plannedPowerOutageItemMessage = "* %s - %s: %s".formatted(tds.get(0).text(), tds.get(1).text(), tds.get(3).text());
                 System.out.println(plannedPowerOutageItemMessage);
             });
         }
@@ -71,7 +85,7 @@ public class PlannedPowerOutage implements Runnable {
 
     private Document retrieveNormalizedInfoFromDeddie(int page) {
         try {
-            return Jsoup.connect(DEDDIE_URL.formatted(PREFECTURE_ID, MUNICIPALITY_ID, page)).get();
+            return Jsoup.connect(DEDDIE_URL.formatted(prefectureId, municipalityId, page)).get();
         } catch (IOException e) {
             throw new RuntimeException("Error while retrieving info from Deddie website. Details: " + e);
         }
